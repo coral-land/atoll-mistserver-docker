@@ -2,11 +2,10 @@ name: Build and Release MistServer Docker Image
 
 on:
     push:
-        branches: [main, master]
         tags: ["v*"]
     pull_request:
         branches: [main, master]
-    workflow_dispatch: # Manual trigger
+    workflow_dispatch:
 
 env:
     REGISTRY: ghcr.io
@@ -75,6 +74,7 @@ jobs:
               uses: docker/build-push-action@v5
               with:
                   context: .
+                  file: ./docker/Dockerfile
                   platforms: ${{ matrix.platform }}
                   push: ${{ github.event_name != 'pull_request' }}
                   tags: |
