@@ -1,8 +1,10 @@
-## [Section 1: High-Performance Build Environment]
+## [Section 1: Build Environment]
 FROM ubuntu:24.04 AS mist_build
 
-ENV CFLAGS="-O3 -fstack-protector-strong -D_FORTIFY_SOURCE=2"
+# We use -static flags to force the compiler to include library code in the binary
+ENV CFLAGS="-O3 -static -fstack-protector-all -D_FORTIFY_SOURCE=2"
 ENV CXXFLAGS="${CFLAGS}"
+ENV LDFLAGS="-static -Wl,-z,relro,-z,now"
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake meson ninja-build git pkg-config ca-certificates \
@@ -12,59 +14,36 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ## [Section 2: Source Acquisition]
 WORKDIR /src
-ARG MIST_REF=3.10
-RUN git clone --depth 1 --branch ${MIST_REF} https://github.com/DDVTECH/mistserver.git .
+RUN git clone --depth 1 --branch 3.10 https://github.com/DDVTECH/mistserver.git .
 
-## [Section 3: Secure Compilation]
-ARG DEBUG=0
-ARG VERSION=0.1.10
-ARG RELEASE=Docker_linux/amd64
-
+## [Section 3: Static Compilation]
+# We tell Meson to prefer static linking for all subcomponents
 RUN meson setup /build . \
     --buildtype=release \
     --strip \
-    -Db_pie=true \
-    -Db_relro=true \
+    -Ddefault_library=static \
+    -Dprefer_static=true \
+    -Db_pie=false \
     -DNOUPDATE=true \
-    -DDEBUG=${DEBUG} \
-    -DVERSION=${VERSION} \
-    -DRELEASE=${RELEASE} \
-    --wrap-mode=nodownload \
     && ninja -C /build install
 
-## [Section 4: The "Collector" Step]
-RUN mkdir -p /out/bin /out/lib /out/deps && \
-    cp /usr/local/bin/MistController /out/bin/ && \
-    cp /usr/local/bin/MistUtilHealth /out/bin/ && \
-    cp /usr/local/bin/MistOutHTTP /out/bin/ && \
-    find /build -name "libmist.so" -exec cp {} /out/lib/ \; && \
-    for bin in /out/bin/* /out/lib/*; do \
-    ldd "$bin" | grep "=> /" | awk '{print $3}' | xargs -I '{}' cp -v '{}' /out/deps/; \
-    done
+## [Section 4: The Ultimate Hardened Runtime]
+# 'static' is the most stripped-down image Google offers. 
+# It has NOTHING inside except timezone data and CA certificates.
+FROM gcr.io/distroless/static-debian12:nonroot
 
-## [Section 5: Hardened Runtime]
-FROM gcr.io/distroless/cc-debian12:nonroot
+LABEL org.opencontainers.image.title="MistServer Static Hardened"
 
-LABEL org.opencontainers.image.title="MistServer Hardened"
+# Copy the self-contained binaries
+COPY --from=mist_build /usr/local/bin/MistController /usr/local/bin/MistController
+COPY --from=mist_build /usr/local/bin/MistUtilHealth /usr/local/bin/MistUtilHealth
+COPY --from=mist_build /usr/local/bin/MistOutHTTP /usr/local/bin/MistOutHTTP
 
-## [Section 6: Secure Asset Migration]
-# Copy binaries
-COPY --from=mist_build /out/bin/ /usr/local/bin/
-# Copy libmist.so
-COPY --from=mist_build /out/lib/ /usr/local/lib/
-# Copy system dependencies
-COPY --from=mist_build /out/deps/ /usr/lib/x86_64-linux-gnu/
-
-## [Section 7: Execution Configuration]
-WORKDIR /usr/local/bin
+# No LD_LIBRARY_PATH needed! The binary doesn't look for external files.
 USER nonroot:nonroot
-
-# Point to both the system libs and our internal libmist
-ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/lib/x86_64-linux-gnu
+WORKDIR /usr/local/bin
 
 EXPOSE 4242 8080 1935
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-    CMD ["/usr/local/bin/MistUtilHealth"]
-
+# Note: Healthcheck might need an internal HTTP check if the binary is 100% static
 ENTRYPOINT ["/usr/local/bin/MistController"]
