@@ -13,7 +13,7 @@ WORKDIR /src
 ARG MIST_REF=3.10
 RUN git clone --depth 1 --branch ${MIST_REF} https://github.com/DDVTECH/mistserver.git .
 
-## [Section 3: Forcing a Fully Static Binary]
+## [Section 3: Static Compilation]
 ARG DEBUG=0
 ARG VERSION=0.1.10
 ARG RELEASE=Docker_linux/amd64
@@ -30,8 +30,9 @@ RUN meson setup /build . \
     --wrap-mode=nodownload \
     && ninja -C /build install
 
-## [Section 4: The Ultra-Hardened Runtime]
-# Use the 'static' variant - it has no glibc, no shell, only CA certs.
+RUN echo "hosts: files dns" > /tmp/nsswitch.conf
+
+## [Section 4: The Ultimate Hardened Runtime]
 FROM gcr.io/distroless/static-debian12:nonroot
 
 LABEL org.opencontainers.image.title="MistServer Fully Static"
@@ -41,7 +42,8 @@ COPY --from=mist_build /usr/local/bin/MistController /usr/local/bin/MistControll
 COPY --from=mist_build /usr/local/bin/MistUtilHealth /usr/local/bin/MistUtilHealth
 COPY --from=mist_build /usr/local/bin/MistOutHTTP /usr/local/bin/MistOutHTTP
 
-RUN echo "hosts: files dns" > /etc/nsswitch.conf
+# FIX: Copy the file from the build stage instead of trying to RUN a command
+COPY --from=mist_build /tmp/nsswitch.conf /etc/nsswitch.conf
 
 USER nonroot:nonroot
 WORKDIR /usr/local/bin
