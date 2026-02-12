@@ -6,15 +6,17 @@ ENV CFLAGS="-O3 -fstack-protector-strong -D_FORTIFY_SOURCE=2 -fPIE"
 ENV CXXFLAGS="${CFLAGS}"
 ENV LDFLAGS="-Wl,-z,relro,-z,now -pie"
 
-# Install everything needed so Meson doesn't try to download subprojects
+# Install dependencies - Added libmbedtls-dev to prevent the subproject trigger
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake meson ninja-build git pkg-config ca-certificates \
     libcjson-dev \
     libssl-dev \
+    libmbedtls-dev \
     libsrtp2-dev \
     libmicrohttpd-dev \
     libsrt-openssl-dev \
     librist-dev \
+    libusrsctp-dev \
     && rm -rf /var/lib/apt/lists/*
 
 ## [Section 2: Source Acquisition]
@@ -26,11 +28,10 @@ RUN git clone --depth 1 --branch ${MIST_REF} ${MIST_REPO} .
 ## [Section 3: Secure Compilation]
 ARG DEBUG=0
 ARG VERSION=0.1.8
-ARG TARGETPLATFORM
 ARG RELEASE=Docker_linux/amd64
 
-# Force Meson to ONLY use the system libraries we just installed.
-# This bypasses the buggy librist/mbedtls subproject code.
+# FIX: We use --wrap-mode=nodownload to force Meson to use the apt packages.
+# We also explicitly point to system libraries to bypass the buggy subproject logic.
 RUN meson setup /build . \
     --buildtype=release \
     --strip \
@@ -41,16 +42,13 @@ RUN meson setup /build . \
     --wrap-mode=nodownload \
     && ninja -C /build install
 
-## [Section 4: Runtime Dependency Mapping]
-# We use ldd to find exactly what libraries the binary linked against
+## [Section 4: Robust Runtime Dependency Mapping]
+# Instead of hardcoding versions (like .so.3), we use a script to find 
+# exactly what the binaries linked against. This prevents "file not found" errors.
 RUN mkdir -p /deps && \
-    cp /usr/lib/x86_64-linux-gnu/libssl.so.3 /deps/ && \
-    cp /usr/lib/x86_64-linux-gnu/libcrypto.so.3 /deps/ && \
-    cp /usr/lib/x86_64-linux-gnu/libcjson.so.1 /deps/ && \
-    cp /usr/lib/x86_64-linux-gnu/libsrtp2.so.1 /deps/ && \
-    cp /usr/lib/x86_64-linux-gnu/libmicrohttpd.so.12 /deps/ && \
-    cp /usr/lib/x86_64-linux-gnu/libsrt.so.1.5 /deps/ && \
-    cp /usr/lib/x86_64-linux-gnu/librist.so.4 /deps/
+    for bin in /usr/local/bin/MistController /usr/local/bin/MistUtilHealth /usr/local/bin/MistOutHTTP; do \
+    ldd "$bin" | grep "=> /" | awk '{print $3}' | xargs -I '{}' cp -v '{}' /deps/; \
+    done
 
 ## [Section 5: Extremely Hardened Runtime]
 FROM gcr.io/distroless/cc-debian12:nonroot
@@ -64,13 +62,14 @@ COPY --from=mist_build /usr/local/bin/MistController /usr/local/bin/MistControll
 COPY --from=mist_build /usr/local/bin/MistUtilHealth /usr/local/bin/MistUtilHealth
 COPY --from=mist_build /usr/local/bin/MistOutHTTP /usr/local/bin/MistOutHTTP
 
-# Distroless expects libraries in this specific path
+# Copy all discovered dependencies into the library path
 COPY --from=mist_build /deps/ /usr/lib/x86_64-linux-gnu/
 
 ## [Section 7: Execution Configuration]
 WORKDIR /usr/local/bin
 USER nonroot:nonroot
 
+# Default MistServer ports
 EXPOSE 4242 8080 1935
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
