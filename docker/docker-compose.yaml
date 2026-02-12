@@ -1,0 +1,28 @@
+services:
+  mist-server:
+    image: ghcr.io/coral-land/atoll-mistserver-docker:latest-amd64
+    container_name: mist_server
+    restart: unless-stopped
+    init: true
+    ports:
+      - "4242:4242" # Web UI / API (Management)
+      - "1935:1935" # RTMP (Ingest/Egress)
+      - "8080:8080" # HTTP/HLS/DASH/Websocket (Viewing)
+      - "554:554" # RTSP (Optional)
+      - "10000-10005:10000-10005/udp" # SRT/RIST (Example range)
+    volumes:
+      - ./config:/config
+      - ./media:/media:ro
+    command: ["-c", "/config/config.json"]
+    environment:
+      - TZ=UTC
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

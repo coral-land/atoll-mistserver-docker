@@ -1,168 +1,168 @@
 name: Build and Release MistServer Docker Image
 
 on:
-    push:
-        tags: ["v*"]
-    pull_request:
-        branches: [main, master]
-    workflow_dispatch:
+  push:
+    tags: ["v*"]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
 
 env:
-    REGISTRY: ghcr.io
-    IMAGE_NAME: ${{ github.repository }}
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-    build:
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            packages: write
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
-        strategy:
-            matrix:
-                platform: [linux/amd64, linux/arm64]
-                include:
-                    - platform: linux/amd64
-                      arch: amd64
-                    - platform: linux/arm64
-                      arch: arm64
+    strategy:
+      matrix:
+        platform: [linux/amd64, linux/arm64]
+        include:
+          - platform: linux/amd64
+            arch: amd64
+          - platform: linux/arm64
+            arch: arm64
 
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-            - name: Docker meta
-              id: meta
-              uses: docker/metadata-action@v5
-              with:
-                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-                  tags: |
-                      type=ref,event=branch
-                      type=ref,event=pr
-                      type=semver,pattern={{version}}
-                      type=semver,pattern={{major}}.{{minor}}
-                      type=semver,pattern={{major}}
-                      type=sha
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
 
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v3
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-            - name: Login to Container Registry
-              if: github.event_name != 'pull_request'
-              uses: docker/login-action@v3
-              with:
-                  registry: ${{ env.REGISTRY }}
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
-
-            - name: Extract metadata for Docker
-              id: docker_meta
-              run: |
-                  # Get version from tag or use commit hash
-                  if [[ ${{ github.ref }} == refs/tags/* ]]; then
-                    VERSION=${GITHUB_REF#refs/tags/}
-                    VERSION=${VERSION#v}
-                  else
-                    VERSION=${GITHUB_SHA:0:8}
-                  fi
-                  echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
-
-            - name: Build and push
-              uses: docker/build-push-action@v5
-              with:
-                  context: .
-                  file: ./docker/Dockerfile
-                  platforms: ${{ matrix.platform }}
-                  push: ${{ github.event_name != 'pull_request' }}
-                  tags: |
-                      ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.docker_meta.outputs.VERSION }}-${{ matrix.arch }}
-                      ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ matrix.arch }}
-                  labels: ${{ steps.meta.outputs.labels }}
-                  cache-from: type=gha
-                  cache-to: type=gha,mode=max
-                  build-args: |
-                      VERSION=${{ steps.docker_meta.outputs.VERSION }}
-                      MIST_REF=3.10
-
-    multiarch:
-        needs: build
+      - name: Login to Container Registry
         if: github.event_name != 'pull_request'
-        runs-on: ubuntu-latest
-        permissions:
-            contents: read
-            packages: write
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
+      - name: Extract metadata for Docker
+        id: docker_meta
+        run: |
+          # Get version from tag or use commit hash
+          if [[ ${{ github.ref }} == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            VERSION=${VERSION#v}
+          else
+            VERSION=${GITHUB_SHA:0:8}
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
 
-            - name: Docker meta
-              id: meta
-              uses: docker/metadata-action@v5
-              with:
-                  images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-                  tags: |
-                      type=ref,event=branch
-                      type=ref,event=pr
-                      type=semver,pattern={{version}}
-                      type=semver,pattern={{major}}.{{minor}}
-                      type=semver,pattern={{major}}
-                      type=sha
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.docker_meta.outputs.VERSION }}-${{ matrix.arch }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-${{ matrix.arch }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ steps.docker_meta.outputs.VERSION }}
+            MIST_REF=3.10
 
-            - name: Set up QEMU
-              uses: docker/setup-qemu-action@v3
+  multiarch:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
-            - name: Set up Docker Buildx
-              uses: docker/setup-buildx-action@v3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-            - name: Login to Container Registry
-              uses: docker/login-action@v3
-              with:
-                  registry: ${{ env.REGISTRY }}
-                  username: ${{ github.actor }}
-                  password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha
 
-            - name: Extract metadata for Docker
-              id: docker_meta
-              run: |
-                  if [[ ${{ github.ref }} == refs/tags/* ]]; then
-                    VERSION=${GITHUB_REF#refs/tags/}
-                    VERSION=${VERSION#v}
-                  else
-                    VERSION=${GITHUB_SHA:0:8}
-                  fi
-                  echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-            - name: Create multi-arch manifest
-              run: |
-                  # Create manifests for multi-arch
-                  docker manifest create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.docker_meta.outputs.VERSION }} \
-                    ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.docker_meta.outputs.VERSION }}-amd64 \
-                    ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.docker_meta.outputs.VERSION }}-arm64
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-                  docker manifest create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-                    ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64 \
-                    ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-arm64
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-                  # Push manifests
-                  docker manifest push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.docker_meta.outputs.VERSION }}
-                  docker manifest push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+      - name: Extract metadata for Docker
+        id: docker_meta
+        run: |
+          if [[ ${{ github.ref }} == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+            VERSION=${VERSION#v}
+          else
+            VERSION=${GITHUB_SHA:0:8}
+          fi
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
 
-    release:
-        needs: multiarch
-        if: startsWith(github.ref, 'refs/tags/')
-        runs-on: ubuntu-latest
-        permissions:
-            contents: write
+      - name: Create multi-arch manifest
+        run: |
+          # Create manifests for multi-arch
+          docker manifest create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.docker_meta.outputs.VERSION }} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.docker_meta.outputs.VERSION }}-amd64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.docker_meta.outputs.VERSION }}-arm64
 
-        steps:
-            - name: Create GitHub Release
-              uses: softprops/action-gh-release@v1
-              with:
-                  name: Release ${{ github.ref_name }}
-                  draft: false
-                  prerelease: false
-                  generate_release_notes: true
+          docker manifest create ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-amd64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest-arm64
+
+          # Push manifests
+          docker manifest push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.docker_meta.outputs.VERSION }}
+          docker manifest push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+  release:
+    needs: multiarch
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true

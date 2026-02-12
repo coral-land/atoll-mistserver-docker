@@ -1,0 +1,26 @@
+{
+  "config": {
+    "accesslog": "LOG_STDOUT",
+    "controller": {
+      "interface": "0.0.0.0",
+      "port": 4242,
+      "username": "admin",
+      "password": "password"
+    },
+    "location": {
+      "lat": 0,
+      "lon": 0,
+      "name": "Docker Container"
+    },
+    "version": "3.10"
+  },
+  "streams": {
+    "live": {
+      "source": "push://"
+    }
+  },
+  "protocols": [
+    {"connector": "RTMP", "port": 1935, "interface": "0.0.0.0"},
+    {"connector": "HTTP", "port": 8080, "interface": "0.0.0.0"}
+  ]
+}
