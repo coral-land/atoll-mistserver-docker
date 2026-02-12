@@ -7,3 +7,16 @@ It's easy, you can find packages built with docker in [here](https://github.com/
 ## Mist server config update
 You can find a minimal configuration file in [config](./config) folder witch you can modify and update as your needs.
 
+## Make command
+If you have make installed on your system you can access to a helpfull set of commands by running `make` command in root of the project:
+
+```bash
+$ make
+
+Usage:
+  make <target>
+
+Targets:
+  compose               Run Docker compose with latest image
+  help                  Show this help
+```
