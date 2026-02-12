@@ -13,7 +13,7 @@ WORKDIR /src
 ARG MIST_REF=3.10
 RUN git clone --depth 1 --branch ${MIST_REF} https://github.com/DDVTECH/mistserver.git .
 
-## [Section 3: Static Compilation]
+## [Section 3: Forcing 100% Static Linking]
 ARG DEBUG=0
 ARG VERSION=0.1.10
 ARG RELEASE=Docker_linux/amd64
@@ -23,6 +23,8 @@ RUN meson setup /build . \
     --strip \
     -Ddefault_library=static \
     -Dprefer_static=true \
+    -Dc_link_args='-static' \
+    -Dcpp_link_args='-static' \
     -DNOUPDATE=true \
     -DDEBUG=${DEBUG} \
     -DVERSION=${VERSION} \
@@ -32,12 +34,11 @@ RUN meson setup /build . \
 
 RUN echo "hosts: files dns" > /tmp/nsswitch.conf
 
-## [Section 4: The Ultimate Hardened Runtime]
+## [Section 4: The Runtime]
 FROM gcr.io/distroless/static-debian12:nonroot
 
-LABEL org.opencontainers.image.title="MistServer Fully Static"
+LABEL org.opencontainers.image.title="MistServer True Static"
 
-# Copy the self-contained binaries
 COPY --from=mist_build /usr/local/bin/MistController /usr/local/bin/MistController
 COPY --from=mist_build /usr/local/bin/MistUtilHealth /usr/local/bin/MistUtilHealth
 COPY --from=mist_build /usr/local/bin/MistOutHTTP /usr/local/bin/MistOutHTTP
