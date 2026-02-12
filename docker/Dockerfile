@@ -41,8 +41,6 @@ LABEL org.opencontainers.image.title="MistServer Fully Static"
 COPY --from=mist_build /usr/local/bin/MistController /usr/local/bin/MistController
 COPY --from=mist_build /usr/local/bin/MistUtilHealth /usr/local/bin/MistUtilHealth
 COPY --from=mist_build /usr/local/bin/MistOutHTTP /usr/local/bin/MistOutHTTP
-
-# FIX: Copy the file from the build stage instead of trying to RUN a command
 COPY --from=mist_build /tmp/nsswitch.conf /etc/nsswitch.conf
 
 USER nonroot:nonroot

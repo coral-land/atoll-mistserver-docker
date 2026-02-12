@@ -17,6 +17,7 @@ Usage:
   make <target>
 
 Targets:
-  compose               Run Docker compose with latest image
+  up                    Run Docker compose with latest image
+  down                  Same Docker compose down
   help                  Show this help
 ```
