@@ -1,6 +1,6 @@
 services:
   mist-server:
-    image: ghcr.io/coral-land/atoll-mistserver-docker:0.1.18-amd64
+    image: ghcr.io/coral-land/atoll-mistserver-docker:0.1.19-amd64
     container_name: mist_server
     restart: unless-stopped
     init: true
