@@ -1,66 +1,56 @@
-# Stage 1: Build using a minimal Debian image
-FROM debian:stable-slim AS mist_build
+# --- SECTION 1: Build Stage (Debian 12) ---
+FROM debian:12-slim AS mist_build
 
-ARG MIST_REF=3.10
-ARG DEBUG=0
-ARG VERSION=0.1.10
-ARG RELEASE=Docker_linux/amd64
-
-# Cache apt package list and update sources
-RUN echo "deb http://deb.debian.org/debian stable main contrib non-free" > /etc/apt/sources.list && \
-    apt-get update
-
-# Install build dependencies
-RUN apt-get install -y --no-install-recommends \
+# Install all necessary build tools and libraries
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential cmake meson ninja-build git pkg-config ca-certificates \
     libcjson-dev libssl-dev libmbedtls-dev libsrtp2-dev \
     libmicrohttpd-dev libsrt-openssl-dev librist-dev libusrsctp-dev \
-    libnss3-dev libnspr4-dev && \
-    rm -rf /var/lib/apt/lists/*
+    libnss3-dev libnspr4-dev \
+    && rm -rf /var/lib/apt/lists/*
 
-# Clone MistServer repository
 WORKDIR /src
+ARG MIST_REF=3.10
 RUN git clone --depth 1 --branch ${MIST_REF} https://github.com/DDVTECH/mistserver.git .
 
-# Configure and build MistServer with static linking
+# Build MistServer. We use a standard build to avoid the static NSS error.
 RUN meson setup /build . \
     --buildtype=release \
     --strip \
-    -Ddefault_library=static \
-    -Dprefer_static=true \
-    -Dc_link_args='-static' \
-    -Dcpp_link_args='-static' \
     -DNOUPDATE=true \
-    -DDEBUG=${DEBUG} \
-    -DVERSION=${VERSION} \
-    -DRELEASE=${RELEASE} \
-    --wrap-mode=nodownload
+    && ninja -C /build install
 
-RUN ninja -C /build install
+# --- SECTION 2: The Collector Stage ---
+# We gather ONLY the files we need into a single folder to copy into Distroless
+RUN mkdir -p /out/bin /out/lib && \
+    cp /usr/local/bin/MistController /out/bin/ && \
+    cp /usr/local/bin/MistUtilHealth /out/bin/ && \
+    cp /usr/local/bin/MistOutHTTP /out/bin/ && \
+    # Find the MistServer shared library
+    find /build -name "libmist.so" -exec cp {} /out/lib/ \;
 
-# Stage 2: Runtime image using distroless
-FROM gcr.io/distroless/static-debian12:nonroot
+# Create the DNS config file here in the build stage
+RUN echo "hosts: files dns" > /out/nsswitch.conf
 
-# Label for container metadata
-LABEL org.opencontainers.image.title="MistServer True Static"
+# --- SECTION 3: The Hardened Runtime (Distroless CC) ---
+# 'cc' includes the C library, which makes the binary actually start.
+FROM gcr.io/distroless/cc-debian12:nonroot
 
-# Copy binaries from build stage
-COPY --from=mist_build /usr/local/bin/MistController /usr/local/bin/MistController
-COPY --from=mist_build /usr/local/bin/MistUtilHealth /usr/local/bin/MistUtilHealth
-COPY --from=mist_build /usr/local/bin/MistOutHTTP /usr/local/bin/MistOutHTTP
+LABEL org.opencontainers.image.title="MistServer Hardened"
 
-# Copy nsswitch.conf (specific to the build context)
-COPY --from=mist_build /etc/nsswitch.conf /etc/nsswitch.conf
+# Copy our prepared binaries and library
+COPY --from=mist_build /out/bin/ /usr/local/bin/
+COPY --from=mist_build /out/lib/ /usr/local/lib/
+COPY --from=mist_build /out/nsswitch.conf /etc/nsswitch.conf
 
-# Set up non-root user
-RUN useradd -m mistuser && \
-    chown -R mistuser: /usr/local/bin/Mist*
+# Distroless 'nonroot' user is UID 65532. We use the ID directly.
+USER 65532:65532
+WORKDIR /usr/local/bin
 
-# Switch to non-root user
-USER mistuser
+# Tell the binary where to find libmist.so
+ENV LD_LIBRARY_PATH=/usr/local/lib
 
-# Expose required ports
 EXPOSE 4242 8080 1935
 
-# Entry point for MistServer
+# Start the controller
 ENTRYPOINT ["/usr/local/bin/MistController"]

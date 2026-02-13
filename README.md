@@ -19,5 +19,9 @@ Usage:
 Targets:
   up                    Run Docker compose with latest image
   down                  Same Docker compose down
+  prune                 Remove docker latest odcker image
+  logs                  Logs for Mist Server Container
+  updev                 Run docker comopse dev
+  downdev               Stop docker compose for dev
   help                  Show this help
 ```
