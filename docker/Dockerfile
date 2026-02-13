@@ -1,48 +1,51 @@
-# --- SECTION 1: Build & Patch Stage ---
-FROM debian:12-slim AS mist_build
+# --- SECTION 1: Build Stage (Alpine) ---
+# We use Alpine to create a 100% static binary that needs NO OS to run.
+FROM alpine:3.19 AS mist_build
 
-# 1. Update the OS and install security patches BEFORE building
-RUN apt-get update && apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends \
-    build-essential cmake meson ninja-build git pkg-config ca-certificates \
-    libcjson-dev libssl-dev libmbedtls-dev libsrtp2-dev \
-    libmicrohttpd-dev libsrt-openssl-dev librist-dev libusrsctp-dev \
-    libnss3-dev libnspr4-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Install build tools and the STATIC versions of libraries
+RUN apk add --no-cache \
+    build-base cmake meson ninja git pkgconfig \
+    openssl-dev openssl-libs-static \
+    mbedtls-dev mbedtls-static \
+    libsrt-dev libsrt-static \
+    libcjson-dev \
+    librist-dev \
+    linux-headers \
+    zlib-static
 
 WORKDIR /src
 ARG MIST_REF=3.10
 RUN git clone --depth 1 --branch ${MIST_REF} https://github.com/DDVTECH/mistserver.git .
 
-RUN meson setup /build . --buildtype=release --strip -DNOUPDATE=true \
+# Build flags for a pure static binary
+# We disable 'analysers' because they require dynamic NSS libraries which don't link statically.
+RUN meson setup /build . \
+    --buildtype=release \
+    --strip \
+    -Ddefault_library=static \
+    -Dprefer_static=true \
+    -Dbuild_analysers=false \
+    -Dc_link_args='-static' \
+    -Dcpp_link_args='-static' \
+    -DNOUPDATE=true \
     && ninja -C /build install
 
-# --- SECTION 2: The Collector (The "Surgical" Fix) ---
-RUN mkdir -p /out/bin /out/lib && \
-    cp /usr/local/bin/MistController /out/bin/ && \
-    cp /usr/local/bin/MistUtilHealth /out/bin/ && \
-    cp /usr/local/bin/MistOutHTTP /out/bin/ && \
-    find /build -name "libmist.so" -exec cp {} /out/lib/ \; && \
-    # This loop grabs the NEWLY PATCHED libraries from the build stage OS
-    # Overwriting the old ones in the scanner's view
-    for bin in /out/bin/* /out/lib/libmist.so; do \
-    ldd "$bin" | grep "=> /" | awk '{print $3}' | xargs -I '{}' cp -v '{}' /out/lib/; \
-    done && \
-    echo "hosts: files dns" > /out/nsswitch.conf
+# --- SECTION 2: The Modern Distroless Runtime (Chainguard) ---
+# This is a "Distroless" image, but it's not Debian. 
+# It is designed to have 0 known vulnerabilities.
+FROM cgr.dev/chainguard/static:latest
 
-# --- SECTION 3: The Hardened Runtime ---
-FROM gcr.io/distroless/cc-debian12:nonroot
+LABEL org.opencontainers.image.title="MistServer Zero-CVE Distroless"
 
-LABEL org.opencontainers.image.title="MistServer Hardened & Patched"
+# Copy the static binaries. They carry their own libraries inside them.
+COPY --from=mist_build /usr/local/bin/MistController /MistController
+COPY --from=mist_build /usr/local/bin/MistUtilHealth /MistUtilHealth
+COPY --from=mist_build /usr/local/bin/MistOutHTTP /MistOutHTTP
 
-COPY --from=mist_build /out/lib/ /lib/x86_64-linux-gnu/
-COPY --from=mist_build /out/bin/ /usr/local/bin/
-COPY --from=mist_build /out/nsswitch.conf /etc/nsswitch.conf
-
-ENV LD_LIBRARY_PATH=/lib/x86_64-linux-gnu:/usr/local/lib
-
+# Chainguard static images use UID 65532 by default
 USER 65532:65532
-WORKDIR /usr/local/bin
 
 EXPOSE 4242 8080 1935
-ENTRYPOINT ["/usr/local/bin/MistController"]
+
+# Entrypoint points to the root binary
+ENTRYPOINT ["/MistController"]
