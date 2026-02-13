@@ -1,25 +1,21 @@
 # --- SECTION 1: Build Stage (Alpine) ---
 FROM alpine:3.19 AS mist_build
 
-# Corrected package names for Alpine 3.19
 RUN apk add --no-cache \
     build-base cmake meson ninja git pkgconf \
     openssl-dev openssl-libs-static \
     mbedtls-dev mbedtls-static \
-    srt-dev srt-static \
     cjson-dev \
-    librist-dev \
     linux-headers \
-    zlib-static
+    zlib-static \
+    --repository=https://dl-cdn.alpinelinux.org/alpine/v3.19/community \
+    --repository=https://dl-cdn.alpinelinux.org/alpine/edge/testing \
+    srt-dev librist-dev
 
 WORKDIR /src
 ARG MIST_REF=3.10
 RUN git clone --depth 1 --branch ${MIST_REF} https://github.com/DDVTECH/mistserver.git .
 
-# We force a 100% static build:
-# 1. -Ddefault_library=static tells Meson to use .a files.
-# 2. -Dbuild_analysers=false prevents dynamic dependencies on NSS/PAM.
-# 3. linker flags -static bake all libraries into the binary.
 RUN meson setup /build . \
     --buildtype=release \
     --strip \
@@ -31,19 +27,17 @@ RUN meson setup /build . \
     -DNOUPDATE=true \
     && ninja -C /build install
 
-# --- SECTION 2: Final Level (Chainguard Static) ---
-# This is a "scratch-like" image with 0 OS packages, meaning 0 vulnerabilities.
+# --- SECTION 2: Zero-Vulnerability Runtime ---
 FROM cgr.dev/chainguard/static:latest
 
-# Copy only the self-contained binaries
+LABEL org.opencontainers.image.title="MistServer Zero-CVE Static"
+
+# Copy the binaries (they now contain all their libraries internally)
 COPY --from=mist_build /usr/local/bin/MistController /MistController
 COPY --from=mist_build /usr/local/bin/MistUtilHealth /MistUtilHealth
 COPY --from=mist_build /usr/local/bin/MistOutHTTP /MistOutHTTP
 
-# Chainguard static uses the nonroot user (UID 65532) by default
 USER 65532:65532
-
 EXPOSE 4242 8080 1935
 
-# Binary is at the root
 ENTRYPOINT ["/MistController"]
