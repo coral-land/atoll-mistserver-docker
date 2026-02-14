@@ -1,6 +1,6 @@
 services:
   mist-server:
-    image: ghcr.io/coral-land/atoll-mistserver-docker:3.10.0-rc4-amd64
+    image: ghcr.io/coral-land/atoll-mistserver-docker:3.10.0-rc5-amd64
     container_name: mist_server
     restart: unless-stopped
     init: true
@@ -12,7 +12,7 @@ services:
       - "10000-10005:10000-10005/udp" # SRT/RIST (Example range)
     volumes:
       - ./config:/config
-      - ./media:/media:ro
+      - ./media:/media
     command: ["-c", "/config/config.json"]
     environment:
       - TZ=UTC
