@@ -48,7 +48,11 @@ RUN useradd -r -u 65532 -g nogroup -d /nonexistent -s /usr/sbin/nologin mist
 COPY --from=build /usr/local/bin/ /usr/local/bin/
 COPY --from=build /usr/local/lib/ /usr/local/lib/
 
-ENV LD_LIBRARY_PATH=/usr/local/lib
+# Refresh the shared library cache to register libmist.so
+RUN ldconfig
+
+# Ensure the linker checks both the base folder and arch-specific subfolders
+ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/local/lib/x86_64-linux-gnu
 
 USER 65532:65532
 WORKDIR /usr/local/bin
