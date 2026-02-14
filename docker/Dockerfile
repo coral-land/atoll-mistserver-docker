@@ -17,18 +17,20 @@ RUN git clone --depth 1 --branch ${MIST_REF} https://github.com/DDVTECH/mistserv
 RUN meson setup /build . --buildtype=release --strip -DNOUPDATE=true \
     && ninja -C /build install
 
-# --- SECTION 2: The Collector (The "Surgical" Fix) ---
-RUN mkdir -p /out/bin /out/lib && \
+# --- SECTION 2: The Collector ---
+RUN mkdir -p /out/bin /out/lib /out/etc && \
     cp /usr/local/bin/MistController /out/bin/ && \
     cp /usr/local/bin/MistUtilHealth /out/bin/ && \
     cp /usr/local/bin/MistOutHTTP /out/bin/ && \
     find /build -name "libmist.so" -exec cp {} /out/lib/ \; && \
-    # This loop grabs the NEWLY PATCHED libraries from the build stage OS
-    # Overwriting the old ones in the scanner's view
     for bin in /out/bin/* /out/lib/libmist.so; do \
     ldd "$bin" | grep "=> /" | awk '{print $3}' | xargs -I '{}' cp -v '{}' /out/lib/; \
     done && \
-    echo "hosts: files dns" > /out/nsswitch.conf
+    cp /lib/x86_64-linux-gnu/libnss_files.so.2 /out/lib/ && \
+    cp /lib/x86_64-linux-gnu/libnss_dns.so.2 /out/lib/ && \
+    cp /lib/x86_64-linux-gnu/libresolv.so.2 /out/lib/ && \
+    echo "hosts: files dns" > /out/etc/nsswitch.conf && \
+    echo "127.0.0.1 localhost" > /out/etc/hosts
 
 # --- SECTION 3: The Hardened Runtime ---
 FROM gcr.io/distroless/cc-debian12:nonroot
