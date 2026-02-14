@@ -1,11 +1,10 @@
-# -------------------------------
-# SECTION 1: Build & Compile MistServer
-# - Uses Debian 12 to compile MistServer from source
-# - Installs all required build dependencies
-# - Produces optimized release binaries
-# -------------------------------
+# ---------------------------------
+# SECTION 1: Build MistServer
+# - Compile from source
+# - Produce stripped release binaries
+# ---------------------------------
 
-FROM debian:12-slim AS mist_build
+FROM debian:12-slim AS build
 
 ARG MIST_REF=3.10
 
@@ -18,55 +17,38 @@ RUN apt-get update && apt-get upgrade -y && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
-
 RUN git clone --depth 1 --branch ${MIST_REF} https://github.com/DDVTECH/mistserver.git .
 
 RUN meson setup /build . --buildtype=release --strip -DNOUPDATE=true && \
     ninja -C /build install
 
 
-# -------------------------------
-# SECTION 2: Collect Runtime Artifacts
-# - Copies compiled binaries
-# - Copies libmist.so
-# - Dynamically collects required shared libraries
-# - Adds NSS libraries for hostname resolution
-# - Creates required system configuration files
-# -------------------------------
+# ---------------------------------
+# SECTION 2: Hardened Runtime
+# - Minimal Debian runtime
+# - No build tools
+# - Non-root user
+# - Read-only filesystem compatible
+# ---------------------------------
 
-RUN mkdir -p /out/bin /out/lib /out/etc && \
-    cp /usr/local/bin/MistController /out/bin/ && \
-    cp /usr/local/bin/MistOutHTTP /out/bin/ && \
-    cp /usr/local/bin/MistUtilHealth /out/bin/ && \
-    find /build -name "libmist.so" -exec cp {} /out/lib/ \; && \
-    for bin in /out/bin/* /out/lib/libmist.so; do \
-    ldd "$bin" | grep "=> /" | awk '{print $3}' | xargs -I '{}' cp -v '{}' /out/lib/; \
-    done && \
-    cp /lib/x86_64-linux-gnu/libnss_files.so.2 /out/lib/ && \
-    cp /lib/x86_64-linux-gnu/libnss_dns.so.2 /out/lib/ && \
-    cp /lib/x86_64-linux-gnu/libresolv.so.2 /out/lib/ && \
-    echo "hosts: files dns" > /out/etc/nsswitch.conf && \
-    echo "127.0.0.1 localhost" > /out/etc/hosts
+FROM debian:12-slim
 
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates libssl3 libmbedtls14 libsrtp2-1 \
+    libmicrohttpd12 librist4 libusrsctp2 \
+    libnss3 libnspr4 && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
 
-# -------------------------------
-# SECTION 3: Minimal Hardened Runtime
-# - Uses distroless Debian 12 runtime
-# - Copies only required libraries and binaries
-# - Enables proper NSS resolution
-# - Runs as non-root user
-# -------------------------------
+# Create dedicated runtime user
+RUN useradd -r -u 65532 -g nogroup -d /nonexistent -s /usr/sbin/nologin mist
 
-FROM gcr.io/distroless/cc-debian12:nonroot
+# Copy only installed runtime artifacts
+COPY --from=build /usr/local/bin/ /usr/local/bin/
+COPY --from=build /usr/local/lib/ /usr/local/lib/
 
-LABEL org.opencontainers.image.title="MistServer Hardened"
-
-COPY --from=mist_build /out/lib/ /lib/x86_64-linux-gnu/
-COPY --from=mist_build /out/bin/ /usr/local/bin/
-COPY --from=mist_build /out/etc/nsswitch.conf /etc/nsswitch.conf
-COPY --from=mist_build /out/etc/hosts /etc/hosts
-
-ENV LD_LIBRARY_PATH=/lib/x86_64-linux-gnu:/usr/local/lib
+ENV LD_LIBRARY_PATH=/usr/local/lib
 
 USER 65532:65532
 WORKDIR /usr/local/bin
